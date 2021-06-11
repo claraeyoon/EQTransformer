@@ -297,19 +297,27 @@ def mseed_predictor(input_dir='downloads_mseeds',
         uni_list.sort()  
           
         time_slots, comp_types = [], []
-        
+
         # print('============ Station {} has {} chunks of data.'.format(st, len(uni_list)), flush=True)      
         for _, month in enumerate(uni_list):
             eqt_logger.info(f"{month}")
             matching = [s for s in file_list if month in s]
             meta, time_slots, comp_types, data_set = _mseed2nparry(args, matching, time_slots, comp_types, st)
 
+            if (len(data_set) < 1): #CY
+                print("Not enough data, skipping this file ", month) #CY
+                continue #CY - avoid divide by zero error
+
             params_pred = {'batch_size': args['batch_size'],
                            'norm_mode': args['normalization_mode']}  
                 
             pred_generator = PreLoadGeneratorTest(meta["trace_start_time"], data_set, **params_pred)
 
-            predD, predP, predS = model.predict_generator(pred_generator)
+            try:
+                predD, predP, predS = model.predict_generator(pred_generator)
+            except ValueError:
+                print("WARNING: skipping predict_generator because of ValueError exception", month) #CY
+                continue
 
             detection_memory = []
             for ix in range(len(predD)):
@@ -322,7 +330,12 @@ def mseed_predictor(input_dir='downloads_mseeds',
                     if plt_n < args['number_of_plots'] and post_write > pre_write:
                         _plotter_prediction(data_set[meta["trace_start_time"][ix]], args, save_figs, predD[ix][:, 0], predP[ix][:, 0], predS[ix][:, 0], meta["trace_start_time"][ix], matches)
                         plt_n += 1            
-                                                       
+
+            # Need these lines to clear data_set dictionary and avoid memory leak (100's of GB) #CY
+            data_set.clear() #CY
+            data_set = None #CY
+            del data_set #CY
+
         end_Predicting = time.time() 
         data_track[st]=[time_slots, comp_types] 
         delta = (end_Predicting - start_Predicting) 
